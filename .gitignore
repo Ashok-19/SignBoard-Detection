@@ -1,26 +1,32 @@
-.venv/
+# Python
 __pycache__/
 *.pyc
-#runs/
-data/raw
-data/curated/signboard_yolo26_lite/images/train
-data/curated/signboard_yolo26_lite/labels/train
-data/curated/signboard_yolo26_lite/labels/train.cache
-data/curated/signboard_yolo26_lite/labels/test.cache
-data/curated/signboard_yolo26_lite/labels/val.cache
-CUDA_FIX.md
-GPU_SETUP_COMPLETE.md
-raw_github
-analysis_report.json
-dataset1_data.yaml
-dataset2_data.yaml
-dataset5_data.yaml
-dataset1.zip
-dataset2.zip
-dataset5.zip
-data/input.mp4
-data/traffic_video-1.mp4
-data/traffic_video-2.mp4
-merged_dataset
-scripts/input.mp4
-unique_images.json
+*.pyo
+.venv/
+*.egg-info/
+
+# Data (large, reproducible via scripts)
+data/raw/
+data/curated/
+data/test/
+*.zip
+
+# Training runs (large, reproducible)
+runs/
+results/
+results-*/
+
+# Videos
+*.mp4
+
+# Old artifacts
+*.cache
+raw_github/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/

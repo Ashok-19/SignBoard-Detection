@@ -1,174 +1,121 @@
-# Traffic Signboard Detection (YOLO26, Laptop-Friendly)
+# HearSight — Traffic Signboard Detection & Classification
 
-## Todo
+A two-stage computer vision system that detects and classifies Indian traffic signboards in real-time using a webcam. Built for the [HearSight](https://github.com/Ashok-19) accessibility project.
 
-- [x] First Iteration model with basic traffic signboard detection
+## How It Works
 
-- [ ] Add labeled data and update the model to detect more specific sign types (e.g., stop sign, zebra crossing, etc.)
+```
+Camera → Full-Frame Detector → Tracker → Crop Classifier → Audio Alert (TODO)
+              │                                    │
+              └── Tiled Inference ─────────────────┘
+                  (for distant signs)
+```
 
-- [ ] Build an audio feedback system that can alert the user when a signboard is detected, and provide information about the sign
+**Stage 1 — Generic Detector:** A YOLO26n model finds all signboards in the frame (3 classes: `road_sign`, `facility_sign`, and `medical_sign`). Uses SAHI-style tiled inference to catch small, distant signs that would otherwise be missed.
 
-- [ ] Build a rule based system to detect high priority sign types to filter out noise and only alert the user for important signs
+**Stage 2 — Crop Classifier:** Each detected sign is cropped, padded, and classified into one of 28 active classification classes (including a background/negative `not_target` class). Results are cached per tracked sign to minimize redundant computation.
 
-- [ ] Optimize the model and inference pipeline for real-time performance.
-
-- [ ] Test the system in real-world scenarios and gather feedback for further improvements.
-
-- [ ] Port entire pipeline to Raspberry Pi 8gb for on-device inference.
-
-- [ ] Optimize again for qualcomm 6490 chip
- 
-This project curates a **single-class** dataset (`traffic_sign_board`) and trains/tests a **YOLO26 nano** detector locally.
-
-## Current curated dataset
-
-Path:
-
-`/home/nnmax/Desktop/forge-alpha/signboard-yolo/data/curated/signboard_yolo26_lite`
-
-Split stats:
-
-| Split | Images | Boxes |
-|---|---:|---:|
-| Train | 2480 | 3000 |
-| Val | 336 | 393 |
-| Test | 312 | 371 |
-| **Total** | **3128** | **3764** |
-
-Source mix in curated set:
-
-| Source | Images | Boxes |
-|---|---:|---:|
-| github_abhayvashokan | 1796 | 2342 |
-| roboflow_traffic_sign_yolo26 | 500 | 586 |
-| roboflow_indian_traffic_sign_yolo26 | 832 | 836 |
-
----
-
-## In-depth analysis of the two YOLO26 Roboflow zips
-
-### 1) `traffic sign.yolo26.zip`
-- Raw images/labels: **2067 / 2067**
-- Classes: **2** (`gap in median`, `no parking`)
-- Labeled boxes: **1037** (many empty label files)
-- Box area (normalized): Q50 ≈ **0.019** (small/medium signs)
-- Median resolution: **253×237**
-
-### 2) `Indian Traffic Sign.yolo26.zip`
-- Raw images/labels: **6750 / 6750**
-- Classes: **85**
-- Labeled boxes: **6769**
-- Box area (normalized): Q50 ≈ **0.605** (mostly sign-focused crops)
-- Median resolution: **178×220**
-
-### Curation choices for local training
-- Unified to one class (`traffic_sign_board`)
-- Dropped tiny boxes: `--min-box-area 0.0005`
-- Dropped very large crop-like boxes: `--max-box-area 0.90`
-- Exact perceptual dedup applied (`--dedup-threshold 0`)
-- Source caps from `configs/sources.yaml` to keep dataset laptop-sized:
-  - `github_abhay: 1800`
-  - `roboflow_traffic_sign_yolo26: 500`
-  - `roboflow_indian_traffic_sign_yolo26: 900`
-
----
-
-## Files delivered
-
-- `configs/sources.yaml` (source registry + per-source caps)
-- `scripts/curate_signboard_dataset.py` (curation pipeline)
-- `scripts/train_local.py` (YOLO26 local training)
-- `scripts/test_local.py` (test/eval + inference)
-- `scripts/fetch_sources.py` (optional downloader)
-- `requirements.txt`
-
----
-
-## 1) Setup
+## Quick Start
 
 ```bash
-cd /home/nnmax/Desktop/forge-alpha/signboard-yolo
-python3 -m venv .venv
-source .venv/bin/activate
+# Install dependencies
 pip install -r requirements.txt
+
+# Run with webcam (Logitech Brio)
+python testing/webcam_test_two_stage.py \
+  --camera brio \
+  --zoom-mode hybrid --tile-size 240
+
+# Run with laptop webcam
+python testing/webcam_test_two_stage.py --camera laptop
 ```
 
----
+### Keyboard Controls
 
-## 2) Optional download step
+| Key | Action |
+|-----|--------|
+| `q` | Quit |
+| `p` | Pause |
+| `r` | Toggle rejected proposals |
+| `f` | Toggle fullscreen |
 
-If you want to fetch additional configured sources:
+## Project Structure
 
-```bash
-python scripts/fetch_sources.py --config configs/sources.yaml
+```
+├── weights/                    # Trained model weights (v3)
+│   ├── detector/best.pt        #   Generic detector (YOLO26n, 1 class)
+│   └── classifier/best.pt     #   Crop classifier (YOLO26n, 29 classes)
+├── testing/                    # Real-time inference pipeline
+│   ├── webcam_test_two_stage.py
+│   └── tile_inference.py
+├── training/                   # Kaggle training notebooks
+│   ├── kaggle-hearsight-ts-training.ipynb
+│   └── kaggle_dataset_builder.ipynb
+├── training_logs/              # Training metrics, curves, confusion matrices
+│   ├── detector/               #   Detector results.csv, PR curves, etc.
+│   └── classifier/             #   Classifier results.csv, confusion matrix, etc.
+├── scripts/                    # Dataset curation & local training
+│   ├── curate_signboard_dataset.py
+│   ├── fetch_sources.py
+│   ├── train_local.py
+│   └── test_local.py
+├── configs/
+│   └── sources.yaml            # Dataset source registry
+└── docs/                       # Detailed documentation
+    ├── dataset.md              #   Dataset sources & curation
+    ├── training.md             #   Training strategy & workflow
+    └── testing.md              #   Testing pipeline & CLI reference
 ```
 
-For Roboflow API downloads:
+## Dataset
 
-```bash
-export ROBOFLOW_API_KEY="your_key"
-```
+The v3 dataset is available for download:
 
----
+- **Kaggle:** [hearsight-ts-dataset-v3](https://www.kaggle.com/datasets/ashok205/hearsight-ts-dataset-v3)
+- **Google Drive:** [hearsight-ts-dataset-v3.zip](https://drive.google.com/file/d/19oFK3CY9Yzd3qLxyoRPjkrLxBSxtyVhs/view?usp=sharing)
 
-## 3) Rebuild the curated YOLO26 dataset
+See [docs/dataset.md](docs/dataset.md) for sources, curation pipeline, and dataset structure.
 
-```bash
-python scripts/curate_signboard_dataset.py \
-  --sources-config configs/sources.yaml \
-  --output-dir data/curated/signboard_yolo26_lite \
-  --val-ratio 0.1 \
-  --test-ratio 0.1 \
-  --seed 42 \
-  --min-box-area 0.0005 \
-  --max-box-area 0.90 \
-  --dedup-threshold 0
-```
+## Documentation
 
-Reports generated:
-- `data/curated/signboard_yolo26_lite/reports/curation_report.json`
-- `data/curated/signboard_yolo26_lite/reports/stats.json`
-- `data/curated/signboard_yolo26_lite/reports/manifest.csv`
-- `data/curated/signboard_yolo26_lite/reports/source_analysis.json`
+| Document | Description |
+|----------|-------------|
+| [docs/dataset.md](docs/dataset.md) | Dataset collection, sources, curation pipeline |
+| [docs/training.md](docs/training.md) | Two-stage training strategy, Kaggle workflow |
+| [docs/testing.md](docs/testing.md) | Testing pipeline, CLI reference, performance |
 
----
+## Performance
 
-## 4) Train locally (YOLO26)
+### Model Scores
 
-```bash
-python scripts/train_local.py \
-  --data data/curated/signboard_yolo26_lite/dataset.yaml \
-  --model yolo26n.pt \
-  --epochs 80 \
-  --imgsz 768 \
-  --batch 8 \
-  --device 0
-```
+| Model | Metric | Score |
+|-------|--------|------:|
+| Detector | mAP@50 | **85.96%** |
+| Detector | mAP@50-95 | **71.27%** |
+| Detector | Precision / Recall | 88.5% / 78.3% |
+| Classifier | Top-1 Accuracy | **95.50%** |
+| Classifier | Top-5 Accuracy | **99.56%** |
 
-CPU fallback:
+See [docs/training.md](docs/training.md) for full training progression and logs.
 
-```bash
-python scripts/train_local.py --device cpu --batch 4
-```
+### Inference
 
----
+| Metric | Value |
+|--------|-------|
+| FPS (RTX 3050, tiling on) | 30+ |
+| Detector input | 640×640 |
+| Tile size | 240px, 30% overlap |
+| Classifier input | 640x640 |
 
-## 5) Test locally
+## Roadmap
 
-```bash
-python scripts/test_local.py \
-  --weights runs/signboard/yolo26n_signboard_lite/weights/best.pt \
-  --data data/curated/signboard_yolo26_lite/dataset.yaml \
-  --imgsz 768 \
-  --batch 8 \
-  --device 0
-```
-
-Optional inference:
-
-```bash
-python scripts/test_local.py \
-  --weights runs/signboard/yolo26n_signboard_lite/weights/best.pt \
-  --data data/curated/signboard_yolo26_lite/dataset.yaml \
-  --predict-source /path/to/images_or_video
-```
+- [x] Multi-class detector (road, facility, medical signs) for generic signboard localization
+- [x] Two-stage pipeline (detector + classifier) with 28 active classification classes (including negative background class)
+- [x] SAHI-style tiled inference for small/distant sign detection
+- [x] Async tile processing with cooperative GPU scheduling
+- [x] Real-time tracker integration (ByteTrack/BoT-SORT)
+- [ ] Audio feedback system for sign type announcements
+- [ ] Port to Raspberry Pi 5 for on-device inference
+- [ ] NCNN/ONNX/OpenVINO model export for edge optimization
+- [ ] Priority-based alerting (high-priority signs first)
+- [ ] Webcam video batch processing mode

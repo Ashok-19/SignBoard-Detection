@@ -36,8 +36,8 @@ def main() -> int:
     parser.add_argument("--device", default="0", help="Device to use. Set to 'cpu' for CPU-only or '0' for GPU. Auto-falls back to CPU if CUDA unavailable.")
     parser.add_argument("--project", default="runs/signboard_eval")
     parser.add_argument("--name", default="test")
-    parser.add_argument("--conf", type=float, default=0.25)
-    parser.add_argument("--iou", type=float, default=0.6)
+    parser.add_argument("--conf", type=float, default=0.5)
+    parser.add_argument("--iou", type=float, default=0.5)
     parser.add_argument("--predict-source", default="", help="Optional image dir/video for inference.")
     args = parser.parse_args()
 

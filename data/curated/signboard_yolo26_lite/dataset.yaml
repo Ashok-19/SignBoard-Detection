@@ -1,7 +1,0 @@
-path: /home/nnmax/Desktop/forge-alpha/signboard-yolo/data/curated/signboard_yolo26_lite
-train: images/train
-val: images/val
-test: images/test
-names:
-  0: traffic_sign_board
-nc: 1
