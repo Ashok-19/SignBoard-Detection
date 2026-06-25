@@ -140,8 +140,8 @@ See [documentation/training.md](documentation/training.md) for full training pro
 - [x] SAHI-style tiled inference for small/distant sign detection
 - [x] Async tile processing with cooperative GPU scheduling
 - [x] Real-time tracker integration (ByteTrack/BoT-SORT)
-- [ ] Audio feedback system for sign type announcements
-- [ ] Port to Raspberry Pi 5 for on-device inference
-- [ ] NCNN/ONNX/OpenVINO model export for edge optimization
-- [ ] Priority-based alerting (high-priority signs first)
-- [ ] Webcam video batch processing mode
+- [x] Audio feedback system for sign type announcements
+- [x] Port to Raspberry Pi 5 for on-device inference
+- [x] NCNN/ONNX/OpenVINO model export for edge optimization
+- [x] Priority-based alerting (high-priority signs first)
+- [x] Webcam video batch processing mode
