@@ -36,3 +36,8 @@ Thumbs.db
 
 testing/rpi_webcam_test_two_stage_ncnn-bc.py
 testing/tile_inference-bc.py
+
+# Doc code
+
+documentation/generate_pdf.py
+documentation/generate_docx.py

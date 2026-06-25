@@ -87,7 +87,7 @@ accuracy as equivalent to the training-resolution reference.
 │   └── test_local.py
 ├── configs/
 │   └── sources.yaml            # Dataset source registry
-└── docs/                       # Detailed documentation
+└── documentation/              # Detailed documentation
     ├── dataset.md              #   Dataset sources & curation
     ├── training.md             #   Training strategy & workflow
     └── testing.md              #   Testing pipeline & CLI reference
@@ -100,15 +100,15 @@ The v3 dataset is available for download:
 - **Kaggle:** [hearsight-ts-dataset-v3](https://www.kaggle.com/datasets/ashok205/hearsight-ts-dataset-v3)
 - **Google Drive:** [hearsight-ts-dataset-v3.zip](https://drive.google.com/file/d/19oFK3CY9Yzd3qLxyoRPjkrLxBSxtyVhs/view?usp=sharing)
 
-See [docs/dataset.md](docs/dataset.md) for sources, curation pipeline, and dataset structure.
+See [documentation/dataset.md](documentation/dataset.md) for sources, curation pipeline, and dataset structure.
 
 ## Documentation
 
 | Document | Description |
 |----------|-------------|
-| [docs/dataset.md](docs/dataset.md) | Dataset collection, sources, curation pipeline |
-| [docs/training.md](docs/training.md) | Two-stage training strategy, Kaggle workflow |
-| [docs/testing.md](docs/testing.md) | Testing pipeline, CLI reference, performance |
+| [documentation/dataset.md](documentation/dataset.md) | Dataset collection, sources, curation pipeline |
+| [documentation/training.md](documentation/training.md) | Two-stage training strategy, Kaggle workflow |
+| [documentation/testing.md](documentation/testing.md) | Testing pipeline, CLI reference, performance |
 
 ## Performance
 
@@ -122,7 +122,7 @@ See [docs/dataset.md](docs/dataset.md) for sources, curation pipeline, and datas
 | Classifier | Top-1 Accuracy | **95.50%** |
 | Classifier | Top-5 Accuracy | **99.56%** |
 
-See [docs/training.md](docs/training.md) for full training progression and logs.
+See [documentation/training.md](documentation/training.md) for full training progression and logs.
 
 ### Inference
 
