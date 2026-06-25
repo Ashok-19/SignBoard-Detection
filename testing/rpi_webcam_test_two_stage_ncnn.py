@@ -286,6 +286,7 @@ class TrackMemory:
     audio_class_name: str | None = None
     audio_confirmations: int = 0
     last_audio_confirm_frame: int = 0
+    last_audio_confirm_time: float = 0.0
 
 
 @dataclass
@@ -394,13 +395,23 @@ class RuntimeState:
             )
 
         track = self.object_tracks[best_tid]
-        track.box = raw.xyxy
         if raw.fresh:
+            smooth_alpha = min(1.0, max(0.05, float(getattr(args, "track_smooth_alpha", 0.55))))
+            px1, py1, px2, py2 = track.box
+            x1, y1, x2, y2 = raw.xyxy
+            track.box = (
+                px1 * (1.0 - smooth_alpha) + x1 * smooth_alpha,
+                py1 * (1.0 - smooth_alpha) + y1 * smooth_alpha,
+                px2 * (1.0 - smooth_alpha) + x2 * smooth_alpha,
+                py2 * (1.0 - smooth_alpha) + y2 * smooth_alpha,
+            )
             track.last_seen_time = now
             track.last_seen_frame = self.frame_index
             track.hits += 1
             self.track_first_seen.setdefault(best_tid, (track.first_seen_time, track.first_seen_frame))
             self.track_last_seen_frame[best_tid] = self.frame_index
+        elif track.hits <= 0:
+            track.box = raw.xyxy
         return best_tid
 
 
@@ -601,6 +612,7 @@ class TileWorker:
         use_clahe = getattr(args, "tile_clahe", False)
         tile_budget = max(1, int(getattr(args, "tile_budget", 1)))
         tile_cache_ttl = max(0.1, float(getattr(args, "tile_cache_ttl", 0.75)))
+        tile_cache_sweeps = max(0.0, float(getattr(args, "tile_cache_sweeps", 1.5)))
         roi = getattr(args, "tile_roi", "full")
         scan_order = getattr(args, "tile_scan_order", "center")
         priority_every = max(0, int(getattr(args, "tile_priority_every", 0)))
@@ -689,8 +701,12 @@ class TileWorker:
             now = time.monotonic()
             all_dets: list[RawDetection] = []
             stale_keys = []
+            effective_cache_ttl = tile_cache_ttl
+            if self._tiles_per_sec > 0.1 and self._tiles:
+                sweep_sec = len(self._tiles) / self._tiles_per_sec
+                effective_cache_ttl = max(tile_cache_ttl, sweep_sec * tile_cache_sweeps)
             for key, (ts, dets) in self._tile_cache.items():
-                if now - ts <= tile_cache_ttl:
+                if now - ts <= effective_cache_ttl:
                     is_fresh = key in processed_keys
                     all_dets.extend(replace(det, fresh=is_fresh) for det in dets)
                 else:
@@ -939,6 +955,16 @@ def run_two_stage(
     if not merged_raw:
         return [], tile_count
 
+    def proposal_rank(raw: RawDetection) -> tuple[bool, bool, float, float]:
+        x1, y1, x2, y2 = raw.xyxy
+        area_frac = max(0.0, (x2 - x1) * (y2 - y1)) / max(1.0, frame_w * frame_h)
+        return (raw.fresh, raw.source == "full", raw.conf, min(area_frac, 0.10))
+
+    merged_raw.sort(key=proposal_rank, reverse=True)
+    max_proposals = max(0, int(getattr(args, "max_proposals", 8)))
+    if max_proposals > 0:
+        merged_raw = merged_raw[:max_proposals]
+
     # --- Build metadata + classify ---
     # Use one lightweight tracker for both full-frame and tile proposals. The
     # Ultralytics tracker only sees intermittent full-frame detections and cannot
@@ -948,20 +974,23 @@ def run_two_stage(
     cls_fresh_keys: set[str] = set()
 
     for raw in merged_raw:
-        xyxy = raw.xyxy
-        crop = crop_xyxy(frame, xyxy, args.crop_pad, args.min_crop_side)
-        if crop is None:
-            continue
-
         det_name = raw.cls_name
 
         track_id = state.assign_track(raw, frame_w, frame_h, now, args)
+        track = state.object_tracks.get(track_id)
+        xyxy = track.box if track is not None else raw.xyxy
+        crop = crop_xyxy(frame, xyxy, args.crop_pad, args.min_crop_side)
+        if crop is None:
+            crop = crop_xyxy(frame, raw.xyxy, args.crop_pad, args.min_crop_side)
+        if crop is None:
+            continue
 
         cache_key = f"{det_name}:{track_id}"
 
         cls_cached = state.cls_cache.get(cache_key)
         audio_verify = bool(getattr(args, "audio_reclassify_fresh", True)) and raw.fresh
-        if cls_cached is None or audio_verify or should_refresh(cls_cached[0], state.frame_index, args.classify_every):
+        refresh_due = cls_cached is not None and should_refresh(cls_cached[0], state.frame_index, args.classify_every)
+        if raw.fresh and (cls_cached is None or audio_verify or refresh_due):
             pending_cls.append((len(metadata), crop))
 
         metadata.append(
@@ -976,6 +1005,16 @@ def run_two_stage(
         )
 
     if pending_cls:
+        max_classify = max(0, int(getattr(args, "max_classify_per_cycle", 3)))
+        pending_cls.sort(
+            key=lambda item: (
+                bool(metadata[item[0]]["fresh"]),
+                float(metadata[item[0]]["det_conf"]),
+            ),
+            reverse=True,
+        )
+        if max_classify > 0:
+            pending_cls = pending_cls[:max_classify]
         # Run sequentially on NCNN classifier to avoid the batch size > 1 IndexError bug
         cls_results = classify_crops(classifier, [c for _, c in pending_cls], args.cls_imgsz, "cpu", infer_lock)
         for (meta_idx, _), cls_result in zip(pending_cls, cls_results):
@@ -1126,6 +1165,8 @@ def parse_args() -> argparse.Namespace:
                         help="Number of tiles to refresh per tile-worker cycle. Higher refreshes coverage faster but costs CPU.")
     parser.add_argument("--tile-cache-ttl", type=float, default=0.75,
                         help="Seconds to keep per-tile detections while the rolling sweep refreshes.")
+    parser.add_argument("--tile-cache-sweeps", type=float, default=1.5,
+                        help="Keep tile detections for at least this many measured tile sweeps to avoid gaps between refreshes.")
     parser.add_argument("--tile-clahe", action="store_true", help="Enable tile CLAHE; improves some low-light scenes but costs FPS")
     parser.add_argument("--tile-min-box", type=int, default=6)
     parser.add_argument("--det-conf", type=float, default=0.25)
@@ -1134,6 +1175,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cls-conf", type=float, default=0.80)
     parser.add_argument("--reject-class", default="not_target")
     parser.add_argument("--max-det", type=int, default=20)
+    parser.add_argument("--max-proposals", type=int, default=8,
+                        help="Max merged proposals to track/classify each inference cycle. 0 disables this cap.")
+    parser.add_argument("--max-classify-per-cycle", type=int, default=3,
+                        help="Max crop classifications per inference cycle. 0 disables this cap.")
     parser.add_argument("--classify-every", type=int, default=3)
     parser.add_argument("--tracker", default="bytetrack.yaml", help="Legacy option; runtime uses the built-in lightweight tracker")
     parser.add_argument("--no-track", action="store_true", help="Legacy option retained for CLI compatibility")
@@ -1147,6 +1192,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--track-iou", type=float, default=0.25)
     parser.add_argument("--track-center-frac", type=float, default=0.14,
                         help="Center-distance fallback for matching fast moving signs across frames.")
+    parser.add_argument("--track-smooth-alpha", type=float, default=0.55,
+                        help="EMA alpha for stable display/classification boxes. Lower is smoother; higher follows motion faster.")
     parser.add_argument("--main-every", type=int, default=5,
                         help="Run full-frame detector every N display frames. 0 disables full-frame detector.")
     parser.add_argument("--full-cache-ttl", type=float, default=0.45,
@@ -1168,10 +1215,18 @@ def parse_args() -> argparse.Namespace:
                         help="Max allowed aspect ratio (longer_side / shorter_side). Rejects extreme slivers.")
     parser.add_argument("--audio-stability", type=int, default=3,
                         help="Minimum fresh detector+classifier confirmations before audio can fire.")
+    parser.add_argument("--audio-confirm-gap", type=float, default=1.5,
+                        help="Max seconds between fresh audio-grade confirmations before the audio confirmation streak resets.")
     parser.add_argument("--audio-reclassify-fresh", action=argparse.BooleanOptionalAction, default=True,
                         help="Re-run classifier for fresh detections until audio is confirmed.")
     parser.add_argument("--audio-cls-gate", type=float, default=0.85,
                         help="Minimum classifier confidence required for audio announcement.")
+    parser.add_argument("--audio-det-gate", type=float, default=0.35,
+                        help="Minimum detector confidence required for audio announcement.")
+    parser.add_argument("--audio-strong-cls-gate", type=float, default=0.97,
+                        help="Classifier confidence that counts as a strong audio confirmation.")
+    parser.add_argument("--audio-strong-det-gate", type=float, default=0.55,
+                        help="Detector confidence that counts as a strong audio confirmation.")
     parser.add_argument("--ir-gpio", type=int, default=None, help="GPIO pin to control IR sensors / LEDs (e.g. 18)")
     parser.add_argument("--display", choices=["window", "none"], default="window")
     parser.add_argument("--preview-width", type=int, default=800, help="Scale preview window width to this size; set to 0 or less to disable scaling")
@@ -1343,9 +1398,12 @@ def main() -> int:
                         persisted_detections = raw_detections
                         persisted_tile_count = raw_tile_count
                         persisted_time = time.monotonic()
-                    elif result_age <= args.result_ttl:
-                        # Inference ran but found nothing on this frame → still trust it briefly
-                        persisted_detections = []
+                    elif result_age <= args.result_ttl and persisted_detections:
+                        persisted_detections = [
+                            replace(det, fresh=False, classifier_fresh=False)
+                            for det in persisted_detections
+                        ]
+                    elif result_age <= args.result_ttl and not persisted_detections:
                         persisted_tile_count = 0
                         persisted_time = time.monotonic()
 
@@ -1360,6 +1418,13 @@ def main() -> int:
                     tile_count = 0
 
                 if new_infer:
+                    audio_stability = max(1, int(getattr(args, "audio_stability", 3)))
+                    audio_cls_gate = float(getattr(args, "audio_cls_gate", 0.85))
+                    audio_det_gate = float(getattr(args, "audio_det_gate", 0.35))
+                    audio_confirm_gap = max(0.1, float(getattr(args, "audio_confirm_gap", 1.5)))
+                    audio_strong_cls_gate = float(getattr(args, "audio_strong_cls_gate", 0.97))
+                    audio_strong_det_gate = float(getattr(args, "audio_strong_det_gate", 0.55))
+
                     # Track lifecycle & updates
                     for det in detections:
                         if det.accepted and det.track_id is not None and det.fresh:
@@ -1368,12 +1433,27 @@ def main() -> int:
                                 state.track_first_seen[det.track_id] = (time.monotonic(), state.frame_index)
                             track = state.object_tracks.get(det.track_id)
                             if track is not None and det.classifier_fresh and track.last_audio_confirm_frame != state.frame_index:
-                                if track.audio_class_name == det.classifier_name:
-                                    track.audio_confirmations += 1
+                                sample_is_audio_grade = (
+                                    det.classifier_conf >= audio_cls_gate
+                                    and det.detector_conf >= audio_det_gate
+                                )
+                                if not sample_is_audio_grade:
+                                    continue
+                                confirm_weight = 2 if (
+                                    det.classifier_conf >= audio_strong_cls_gate
+                                    and det.detector_conf >= audio_strong_det_gate
+                                ) else 1
+                                confirm_gap = (
+                                    track.last_audio_confirm_time > 0.0
+                                    and time.monotonic() - track.last_audio_confirm_time > audio_confirm_gap
+                                )
+                                if track.audio_class_name == det.classifier_name and not confirm_gap:
+                                    track.audio_confirmations += confirm_weight
                                 else:
                                     track.audio_class_name = det.classifier_name
-                                    track.audio_confirmations = 1
+                                    track.audio_confirmations = confirm_weight
                                 track.last_audio_confirm_frame = state.frame_index
+                                track.last_audio_confirm_time = time.monotonic()
                                 
                     # Purge stale tracks
                     stale_tracks = []
@@ -1388,8 +1468,6 @@ def main() -> int:
                         state.spoken_tracks.discard(tid)
 
                     # Find candidates for audio trigger
-                    audio_stability = getattr(args, "audio_stability", 3)
-                    audio_cls_gate = getattr(args, "audio_cls_gate", 0.85)
                     candidates = []
                     for det in detections:
                         if det.accepted and det.track_id is not None:
@@ -1407,6 +1485,8 @@ def main() -> int:
                                 if duration < args.audio_debounce:
                                     continue
                                 if det.classifier_conf < audio_cls_gate:
+                                    continue
+                                if det.detector_conf < audio_det_gate:
                                     continue
                                 priority = CLASS_PRIORITY.get(det.classifier_name, 3)
                                 candidates.append((priority, det))

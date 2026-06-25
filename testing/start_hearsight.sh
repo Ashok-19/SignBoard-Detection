@@ -37,16 +37,28 @@ python "${SCRIPT_DIR}/rpi_webcam_test_two_stage_ncnn.py" \
     --sharpness 1.4 \
     --contrast 1.08 \
     --threads 3 \
-    --main-every 1 \
+    --main-every 6 \
     --result-ttl 2.0 \
     --persist-ttl 4.0 \
     --tile-budget 1 \
-    --tile-cache-ttl 0.65 \
+    --tile-cache-ttl 2.5 \
+    --tile-cache-sweeps 1.5 \
     --tile-scan-order center \
-    --tile-priority-every 4 \
-    --det-conf 0.30 \
-    --tile-conf 0.20 \
-    --cls-conf 0.85 \
-    --audio-cls-gate 0.7 \
-    --audio-stability 1 \
-    --audio-debounce 0.10
+    --tile-priority-every 0 \
+    --det-conf 0.35 \
+    --tile-conf 0.28 \
+    --cls-conf 0.90 \
+    --classify-every 1 \
+    --max-proposals 6 \
+    --max-classify-per-cycle 3 \
+    --min-box-frac 0.018 \
+    --track-ttl 45 \
+    --track-ttl-sec 3.5 \
+    --track-smooth-alpha 0.45 \
+    --audio-cls-gate 0.92 \
+    --audio-det-gate 0.38 \
+    --audio-strong-cls-gate 0.97 \
+    --audio-strong-det-gate 0.55 \
+    --audio-stability 2 \
+    --audio-confirm-gap 1.25 \
+    --audio-debounce 0.35

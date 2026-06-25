@@ -305,8 +305,9 @@ def merge_detections_nms(
 
     merged: list[RawDetection] = []
     for cls_id, dets in by_cls.items():
-        # Sort: full-frame first (priority), then by confidence descending
-        dets.sort(key=lambda d: (d.source == "full", d.conf), reverse=True)
+        # Prefer fresh geometry first. Full-frame boxes win only when freshness
+        # is equal, otherwise stale full-frame boxes can suppress current tiles.
+        dets.sort(key=lambda d: (d.fresh, d.source == "full", d.conf), reverse=True)
         keep: list[RawDetection] = []
         for d in dets:
             suppress = False
