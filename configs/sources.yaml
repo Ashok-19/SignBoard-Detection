@@ -1,0 +1,57 @@
+sources:
+  - name: github_abhay
+    kind: github_abhay
+    path: raw_github
+    enabled: true
+    required: true
+    max_images: 1800
+    download:
+      kind: github_zip
+      url: https://github.com/AbhayVAshokan/Traffic-Sign-Detection-Dataset/archive/refs/heads/master.zip
+
+  - name: roboflow_traffic_sign_yolo26
+    kind: yolo_export
+    path: data/raw/roboflow_traffic_sign_yolo26
+    enabled: true
+    required: false
+    max_images: 500
+
+  - name: roboflow_indian_traffic_sign_yolo26
+    kind: yolo_export
+    path: data/raw/roboflow_indian_traffic_sign_yolo26
+    enabled: true
+    required: false
+    max_images: 900
+
+  - name: roboflow_indian_traffic_sign
+    kind: yolo_export
+    path: data/raw/roboflow_indian_traffic_sign
+    enabled: false
+    required: false
+    download:
+      kind: roboflow
+      workspace: college-opfvn
+      project: india-traffic-sign
+      version: 1
+      format: yolov8
+
+  - name: roboflow_traffic_and_road_signs
+    kind: yolo_export
+    path: data/raw/roboflow_traffic_and_road_signs
+    enabled: false
+    required: false
+    download:
+      kind: roboflow
+      workspace: usmanchaudhry622-gmail-com
+      project: traffic-and-road-signs
+      version: 1
+      format: yolov8
+
+  - name: kaggle_indian_sign_board
+    kind: kaggle_csv
+    path: data/raw/kaggle_indian_sign_board
+    enabled: false
+    required: false
+    download:
+      kind: kaggle
+      dataset: dataclusterlabs/indian-sign-board-image-dataset

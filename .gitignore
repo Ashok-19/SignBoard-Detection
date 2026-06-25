@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+.venv-rpi/
+*.egg-info/
+
+# Data (large, reproducible via scripts)
+data/raw/
+data/curated/
+data/test/
+*.zip
+
+# Training runs (large, reproducible)
+runs/
+results/
+results-*/
+
+# Videos
+*.mp4
+
+# Old artifacts
+*.cache
+raw_github/
+
+# System
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Backup code
+
+testing/rpi_webcam_test_two_stage_ncnn-bc.py
+testing/tile_inference-bc.py

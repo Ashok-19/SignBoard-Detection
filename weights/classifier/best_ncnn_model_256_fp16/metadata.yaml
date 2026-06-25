@@ -1,0 +1,46 @@
+description: Ultralytics YOLO26n-cls model trained on /kaggle/working/hearsight_two_stage_dataset_train/classifier_dataset
+author: Ultralytics
+date: '2026-06-01T18:08:24.906148'
+version: 8.4.59
+license: AGPL-3.0 License (https://ultralytics.com/license)
+docs: https://docs.ultralytics.com
+stride: 1
+task: classify
+batch: 1
+imgsz:
+- 256
+- 256
+names:
+  0: Accessible_PwD
+  1: Baggage_claim
+  2: Bus_stop
+  3: Cross_road
+  4: Danger_electricity
+  5: Emergency_exit
+  6: Fire_alarm
+  7: Fuel_station
+  8: Medical_Shop_-_Hospital_-_First_aid
+  9: Men_at_work
+  10: Narrow_bridge_ahead
+  11: Narrow_road_ahead
+  12: No_entry
+  13: No_parking
+  14: No_stopping_or_Standing
+  15: Pedestrian_Prohibited
+  16: Pedestrian_crossing
+  17: Public_toilet
+  18: Railway_crossing
+  19: Roundabout
+  20: School_ahead
+  21: Side_road_left
+  22: Side_road_right
+  23: Speed_breaker
+  24: Stop
+  25: Washroom_Female
+  26: Washroom_Male
+  27: not_target
+args:
+  batch: 1
+  half: true
+channels: 3
+end2end: false

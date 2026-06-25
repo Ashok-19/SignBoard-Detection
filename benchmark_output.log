@@ -1,0 +1,29 @@
+[module-load] __name__ = __main__, pid = 8338
+[info] Warming up NCNN models...
+[module-load] __name__ = __mp_main__, pid = 8346
+Loading /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 for NCNN inference...
+Loading /home/beyondsight/SignBoard-Detection-main/weights/classifier/best_ncnn_model_640 for NCNN inference...
+[info] Warmup complete.
+[1:37:02.867911563] [8338]  INFO Camera camera_manager.cpp:340 libcamera v0.7.1+rpt20260429
+[1:37:02.946767197] [8359]  INFO RPI pisp.cpp:720 libpisp version v1.5.0 01-05-2026 (05:33:53)
+[1:37:03.172399864] [8359]  INFO IPAProxy ipa_proxy.cpp:184 Using tuning file /tmp/tmpq7qvwzfe
+[1:37:03.180617419] [8359]  INFO Camera camera_manager.cpp:223 Adding camera '/base/axi/pcie@1000120000/rp1/i2c@80000/ov5647@36' for pipeline handler rpi/pisp
+[1:37:03.180734636] [8359]  INFO RPI pisp.cpp:1181 Registered camera /base/axi/pcie@1000120000/rp1/i2c@80000/ov5647@36 to CFE device /dev/media0 and ISP device /dev/media1 using PiSP variant BCM2712_D0
+[1:37:03.199241429] [8359]  WARN V4L2 v4l2_pixelformat.cpp:346 Unsupported V4L2 pixel format Nc30
+[1:37:03.199356405] [8359]  WARN V4L2 v4l2_pixelformat.cpp:346 Unsupported V4L2 pixel format Nc12
+[1:37:03.201842144] [8338]  INFO Camera camera.cpp:1216 configuring streams: (0) 1280x720-RGB888/Rec709/Rec709/None/Full (1) 1920x1080-GBRG_PISP_COMP1/RAW
+[1:37:03.202038432] [8359]  INFO RPI pisp.cpp:1485 Sensor: /base/axi/pcie@1000120000/rp1/i2c@80000/ov5647@36 - Selected sensor format: 1920x1080-SGBRG10_1X10/RAW - Selected CFE format: 1920x1080-PC1g/RAW
+Detector:   /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 (main, imgsz=512)
+Tile det:   /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 (background, imgsz=512)
+Classifier: /home/beyondsight/SignBoard-Detection-main/weights/classifier/best_ncnn_model_640 (imgsz=320)
+Preset:     custom
+Camera:     Picamera2 #0 1280x720@30
+Tiling:     zoom_mode=hybrid, size=480, overlap=0.30
+Controls:   [q] quit  [p] pause  [r] show/hide rejected  [f] fullscreen  [i] toggle IR
+[tile-process] starting child process...
+[tile-process] detector loaded successfully.
+Loading /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 for NCNN inference...
+[tile-process] warmup completed.
+Loading /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 for NCNN inference...
+Loading /home/beyondsight/SignBoard-Detection-main/weights/detector/best_ncnn_model_640 for NCNN inference...
+Loading /home/beyondsight/SignBoard-Detection-main/weights/classifier/best_ncnn_model_640 for NCNN inference...
