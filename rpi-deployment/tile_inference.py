@@ -42,6 +42,7 @@ class RawDetection:
     cls_id: int
     cls_name: str
     source: str  # "full" or "tile"
+    fresh: bool = True
 
 
 @dataclass

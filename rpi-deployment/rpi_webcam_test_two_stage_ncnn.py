@@ -26,7 +26,7 @@ os.environ["OPENBLAS_NUM_THREADS"] = threads
 import argparse
 import time
 import threading
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import cv2
@@ -270,6 +270,8 @@ class TwoStageDetection:
     classifier_name: str
     classifier_conf: float
     accepted: bool
+    fresh: bool = False
+    classifier_fresh: bool = False
 
 
 @dataclass
@@ -281,6 +283,9 @@ class TrackMemory:
     last_seen_time: float
     last_seen_frame: int
     hits: int = 0
+    audio_class_name: str | None = None
+    audio_confirmations: int = 0
+    last_audio_confirm_frame: int = 0
 
 
 @dataclass
@@ -300,6 +305,7 @@ class RuntimeState:
     track_last_seen_frame: dict[str, int] | None = None
     object_tracks: dict[str, TrackMemory] | None = None
     audio_file_cache: dict[tuple[str, str, str], str | None] | None = None
+    last_tile_result_time: float = 0.0
     _object_track_counter: int = 0
 
     def __post_init__(self) -> None:
@@ -389,11 +395,12 @@ class RuntimeState:
 
         track = self.object_tracks[best_tid]
         track.box = raw.xyxy
-        track.last_seen_time = now
-        track.last_seen_frame = self.frame_index
-        track.hits += 1
-        self.track_first_seen.setdefault(best_tid, (track.first_seen_time, track.first_seen_frame))
-        self.track_last_seen_frame[best_tid] = self.frame_index
+        if raw.fresh:
+            track.last_seen_time = now
+            track.last_seen_frame = self.frame_index
+            track.hits += 1
+            self.track_first_seen.setdefault(best_tid, (track.first_seen_time, track.first_seen_frame))
+            self.track_last_seen_frame[best_tid] = self.frame_index
         return best_tid
 
 
@@ -488,9 +495,10 @@ def should_refresh(cache_frame: int | None, frame_index: int, every: int) -> boo
 
 class FrameGrabber:
     """Threaded camera capture for Picamera2. Decouples frame reading."""
-    def __init__(self, camera: Picamera2, rotation: int = 0):
+    def __init__(self, camera: Picamera2, rotation: int = 0, camera_color: str = "rgb"):
         self._camera = camera
         self._rotation = rotation
+        self._camera_color = camera_color
         self._frame: np.ndarray | None = None
         self._lock = threading.Lock()
         self._stopped = False
@@ -507,6 +515,8 @@ class FrameGrabber:
                     frame = cv2.rotate(frame, cv2.ROTATE_180)
                 elif self._rotation == 270:
                     frame = cv2.rotate(frame, cv2.ROTATE_90_COUNTERCLOCKWISE)
+                if self._camera_color == "rgb":
+                    frame = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
                 
                 with self._lock:
                     self._frame = frame
@@ -617,6 +627,7 @@ class TileWorker:
                 continue
             
             processed_tiles = 0
+            processed_keys: set[tuple[int, int, int, int]] = set()
             for _ in range(min(tile_budget, len(self._tiles))):
                 if self._stopped:
                     break
@@ -629,6 +640,8 @@ class TileWorker:
                 crop = frame[tile.y1:tile.y2, tile.x1:tile.x2]
                 if crop.shape[0] < 32 or crop.shape[1] < 32:
                     continue
+                tile_key = (tile.x1, tile.y1, tile.x2, tile.y2)
+                processed_keys.add(tile_key)
                 processed = preprocess_tile(crop, use_clahe=use_clahe)
                 with self._infer_lock:
                     res = self._detector.predict(
@@ -643,7 +656,7 @@ class TileWorker:
                 processed_tiles += 1
                 tile_dets: list[RawDetection] = []
                 if not res or res[0].boxes is None:
-                    self._tile_cache[(tile.x1, tile.y1, tile.x2, tile.y2)] = (time.monotonic(), tile_dets)
+                    self._tile_cache[tile_key] = (time.monotonic(), tile_dets)
                     continue
                 
                 tile_w = tile.x2 - tile.x1
@@ -671,14 +684,15 @@ class TileWorker:
                             source="tile",
                         )
                     )
-                self._tile_cache[(tile.x1, tile.y1, tile.x2, tile.y2)] = (time.monotonic(), tile_dets)
+                self._tile_cache[tile_key] = (time.monotonic(), tile_dets)
 
             now = time.monotonic()
             all_dets: list[RawDetection] = []
             stale_keys = []
             for key, (ts, dets) in self._tile_cache.items():
                 if now - ts <= tile_cache_ttl:
-                    all_dets.extend(dets)
+                    is_fresh = key in processed_keys
+                    all_dets.extend(replace(det, fresh=is_fresh) for det in dets)
                 else:
                     stale_keys.append(key)
             for key in stale_keys:
@@ -890,14 +904,20 @@ def run_two_stage(
         tile_age = time.monotonic() - t_time if t_time > 0 else 999.0
         tile_result_ttl = max(0.25, float(getattr(args, "result_ttl", 0.65)) + 0.10)
         if tile_age < tile_result_ttl:
-            state.last_tile_dets = t_dets
+            is_new_tile_result = t_time > 0 and t_time != state.last_tile_result_time
+            state.last_tile_dets = (
+                t_dets if is_new_tile_result
+                else [replace(det, fresh=False) for det in t_dets]
+            )
+            if is_new_tile_result:
+                state.last_tile_result_time = t_time
         else:
             state.last_tile_dets = []
         tile_count = tile_worker.tile_count
 
     # --- Merge full-frame + tile detections ---
     if time.monotonic() - state.last_full_time <= full_cache_ttl:
-        full_raw = list(state.last_full_dets)
+        full_raw = [replace(det, fresh=run_full) for det in state.last_full_dets]
     else:
         full_raw = []
 
@@ -927,6 +947,7 @@ def run_two_stage(
     # maintain IDs for tile-only signs.
     pending_cls: list[tuple[int, np.ndarray]] = []
     metadata: list[dict] = []
+    cls_fresh_keys: set[str] = set()
 
     for raw in merged_raw:
         xyxy = raw.xyxy
@@ -941,7 +962,8 @@ def run_two_stage(
         cache_key = f"{det_name}:{track_id}"
 
         cls_cached = state.cls_cache.get(cache_key)
-        if cls_cached is None or should_refresh(cls_cached[0], state.frame_index, args.classify_every):
+        audio_verify = bool(getattr(args, "audio_reclassify_fresh", True)) and raw.fresh
+        if cls_cached is None or audio_verify or should_refresh(cls_cached[0], state.frame_index, args.classify_every):
             pending_cls.append((len(metadata), crop))
 
         metadata.append(
@@ -951,6 +973,7 @@ def run_two_stage(
                 "box": clip_xyxy(frame, xyxy),
                 "det_name": det_name,
                 "det_conf": raw.conf,
+                "fresh": raw.fresh,
             }
         )
 
@@ -965,6 +988,7 @@ def run_two_stage(
             cls_conf = float(probs.top1conf)
             cls_name = cls_result.names.get(cls_id, f"cls_{cls_id}")
             state.cls_cache[metadata[meta_idx]["cache_key"]] = (state.frame_index, cls_name, cls_conf)
+            cls_fresh_keys.add(metadata[meta_idx]["cache_key"])
 
     detections: list[TwoStageDetection] = []
     for item in metadata:
@@ -982,6 +1006,8 @@ def run_two_stage(
                 classifier_name=pretty_name(cls_name),
                 classifier_conf=cls_conf,
                 accepted=accepted,
+                fresh=bool(item["fresh"]),
+                classifier_fresh=item["cache_key"] in cls_fresh_keys,
             )
         )
 
@@ -1026,9 +1052,25 @@ def draw_detections(
 def open_camera(args: argparse.Namespace) -> Picamera2:
     tuning = Picamera2.load_tuning_file(str(args.tuning_file))
     camera = Picamera2(args.camera_num, tuning=tuning)
+    controls = {"FrameRate": args.camera_fps}
+    optional_controls = {
+        "Sharpness": args.sharpness,
+        "Contrast": args.contrast,
+        "Saturation": args.saturation,
+        "ExposureTime": args.shutter_us,
+        "AnalogueGain": args.analogue_gain,
+    }
+    supported_controls = getattr(camera, "camera_controls", {}) or {}
+    for key, value in optional_controls.items():
+        if value is None:
+            continue
+        if supported_controls and key not in supported_controls:
+            print(f"[camera] control {key} is not supported; skipping")
+            continue
+        controls[key] = value
     config = camera.create_video_configuration(
-        main={"size": (args.width, args.height), "format": "RGB888"},
-        controls={"FrameRate": args.camera_fps},
+        main={"size": (args.width, args.height), "format": args.camera_format},
+        controls=controls,
         buffer_count=4,
         queue=False,
     )
@@ -1054,8 +1096,22 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--camera-fps", type=float, default=30.0)
+    parser.add_argument("--camera-format", default="RGB888",
+                        help="Picamera2 main stream format. Keep RGB888 unless you have confirmed BGR888 works.")
+    parser.add_argument("--camera-color", choices=["rgb", "bgr"], default="rgb",
+                        help="Color order returned by the camera stream. RGB frames are converted to BGR for YOLO/OpenCV.")
     parser.add_argument("--camera-rotation", type=int, choices=[0, 90, 180, 270], default=0,
                         help="Rotate camera input image clockwise by this angle (0, 90, 180, or 270) to normalise it to landscape")
+    parser.add_argument("--sharpness", type=float, default=None,
+                        help="Optional libcamera Sharpness control, e.g. 1.3-1.6 for crisper sign edges.")
+    parser.add_argument("--contrast", type=float, default=None,
+                        help="Optional libcamera Contrast control.")
+    parser.add_argument("--saturation", type=float, default=None,
+                        help="Optional libcamera Saturation control.")
+    parser.add_argument("--shutter-us", type=int, default=None,
+                        help="Optional fixed exposure time in microseconds. Lower values reduce motion blur but need more light.")
+    parser.add_argument("--analogue-gain", type=float, default=None,
+                        help="Optional fixed analogue gain. Useful with --shutter-us in controlled tests.")
     parser.add_argument("--det-imgsz", type=int, default=640, help="Inference size for main-thread detector")
     parser.add_argument("--cls-imgsz", type=int, default=640, help="Inference size for classifier")
     parser.add_argument("--tile-imgsz", type=int, default=640, help="Inference size for tile-worker detector")
@@ -1109,7 +1165,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--max-aspect-ratio", type=float, default=6.0,
                         help="Max allowed aspect ratio (longer_side / shorter_side). Rejects extreme slivers.")
     parser.add_argument("--audio-stability", type=int, default=3,
-                        help="Minimum frames a track must be continuously seen before audio can fire.")
+                        help="Minimum fresh detector+classifier confirmations before audio can fire.")
+    parser.add_argument("--audio-reclassify-fresh", action=argparse.BooleanOptionalAction, default=True,
+                        help="Re-run classifier for fresh detections until audio is confirmed.")
     parser.add_argument("--audio-cls-gate", type=float, default=0.85,
                         help="Minimum classifier confidence required for audio announcement.")
     parser.add_argument("--ir-gpio", type=int, default=None, help="GPIO pin to control IR sensors / LEDs (e.g. 18)")
@@ -1207,7 +1265,7 @@ def main() -> int:
     infer_lock = threading.Lock()
     
     # Start background threads
-    grabber = FrameGrabber(camera, rotation=args.camera_rotation)
+    grabber = FrameGrabber(camera, rotation=args.camera_rotation, camera_color=args.camera_color)
     tile_worker = None
     if args.zoom_mode != "off":
         if Path(args.tile_detector).resolve() == Path(args.detector).resolve():
@@ -1280,10 +1338,18 @@ def main() -> int:
                 if new_infer:
                     # Track lifecycle & updates
                     for det in detections:
-                        if det.accepted and det.track_id is not None:
+                        if det.accepted and det.track_id is not None and det.fresh:
                             state.track_last_seen_frame[det.track_id] = state.frame_index
                             if det.track_id not in state.track_first_seen:
                                 state.track_first_seen[det.track_id] = (time.monotonic(), state.frame_index)
+                            track = state.object_tracks.get(det.track_id)
+                            if track is not None and det.classifier_fresh and track.last_audio_confirm_frame != state.frame_index:
+                                if track.audio_class_name == det.classifier_name:
+                                    track.audio_confirmations += 1
+                                else:
+                                    track.audio_class_name = det.classifier_name
+                                    track.audio_confirmations = 1
+                                track.last_audio_confirm_frame = state.frame_index
                                 
                     # Purge stale tracks
                     stale_tracks = []
@@ -1292,6 +1358,7 @@ def main() -> int:
                         if state.frame_index - last_seen > args.track_ttl:
                             stale_tracks.append(tid)
                     for tid in stale_tracks:
+                        state.object_tracks.pop(tid, None)
                         state.track_first_seen.pop(tid, None)
                         state.track_last_seen_frame.pop(tid, None)
                         state.spoken_tracks.discard(tid)
@@ -1303,20 +1370,18 @@ def main() -> int:
                     for det in detections:
                         if det.accepted and det.track_id is not None:
                             if det.track_id not in state.spoken_tracks:
-                                first = state.track_first_seen.get(det.track_id)
-                                if first is None:
+                                if not det.fresh or not det.classifier_fresh:
                                     continue
-                                first_time, first_frame = first
-                                # Time-based debounce
-                                duration = time.monotonic() - first_time
-                                effective_debounce = 0.0 if audio_stability <= 1 else args.audio_debounce
-                                if duration < effective_debounce:
+                                track = state.object_tracks.get(det.track_id)
+                                if track is None:
                                     continue
-                                # Frame-stability: must be seen for enough frames
-                                frames_seen = state.frame_index - first_frame + 1
-                                if frames_seen < audio_stability:
+                                if track.audio_class_name != det.classifier_name:
                                     continue
-                                # Classifier confidence must clear the higher audio gate
+                                if track.audio_confirmations < audio_stability:
+                                    continue
+                                duration = time.monotonic() - track.first_seen_time
+                                if duration < args.audio_debounce:
+                                    continue
                                 if det.classifier_conf < audio_cls_gate:
                                     continue
                                 priority = CLASS_PRIORITY.get(det.classifier_name, 3)

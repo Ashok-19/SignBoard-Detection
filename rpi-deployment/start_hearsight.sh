@@ -31,6 +31,9 @@ python "${SCRIPT_DIR}/rpi_webcam_test_two_stage_ncnn.py" \
     --preset accuracy \
     --display none \
     --camera-rotation 270 \
+    --camera-color rgb \
+    --sharpness 1.4 \
+    --contrast 1.08 \
     --threads 3 \
     --main-every 6 \
     --full-cache-ttl 0.40 \
@@ -39,5 +42,9 @@ python "${SCRIPT_DIR}/rpi_webcam_test_two_stage_ncnn.py" \
     --tile-cache-ttl 0.65 \
     --tile-scan-order center \
     --tile-priority-every 4 \
-    --audio-stability 1 \
-    --audio-debounce 0.05
+    --det-conf 0.30 \
+    --tile-conf 0.20 \
+    --cls-conf 0.85 \
+    --audio-cls-gate 0.93 \
+    --audio-stability 2 \
+    --audio-debounce 0.10
