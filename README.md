@@ -1,6 +1,6 @@
 # HearSight — Traffic Signboard Detection & Classification
 
-A two-stage computer vision system that detects and classifies Indian traffic signboards in real-time using a webcam. Built for the [HearSight](https://github.com/Ashok-19) accessibility project.
+A two-stage computer vision system that detects and classifies Indian traffic signboards in real-time using a webcam. Built for the HearSight accessibility project.
 
 ## How It Works
 
